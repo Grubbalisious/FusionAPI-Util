@@ -1,0 +1,72 @@
+local runService = game:GetService("RunService")
+local userInput = game:GetService("UserInputService")
+local starterGui = game:GetService("StarterGui")
+local cam = workspace.CurrentCamera
+local player = game:GetService("Players").LocalPlayer
+
+local skyCamEnabled = false
+local smoothFactor = 0.1         -- Smooth movement
+local skyCamHeight = 35          -- Slightly higher for a better view
+local skyCamDistance = 70        -- Moves the camera further behind
+local camLookAhead = 30          -- Keeps it looking further downfield
+local flipped = false            -- Camera flip state
+local tiltUp = 10                -- Adjust tilt upwards
+
+-- Function to locate the ball
+local function getBall()
+    local ballObjectValue = game:GetService("ReplicatedStorage"):FindFirstChild("Flags") and 
+                            game:GetService("ReplicatedStorage").Flags:FindFirstChild("Ball")
+    return ballObjectValue and ballObjectValue.Value or nil
+end
+
+-- Function to toggle UI visibility
+local function toggleGUI(state)
+    for _, gui in pairs(player.PlayerGui:GetChildren()) do
+        if gui:IsA("ScreenGui") then
+            gui.Enabled = state
+        end
+    end
+end
+
+-- Update the SkyCam position and view
+local function updateSkyCam()
+    if not skyCamEnabled then return end
+
+    local ball = getBall()
+    if ball and ball:IsA("BasePart") then
+        local ballPos = ball.Position
+        local camTarget = ballPos + Vector3.new(0, tiltUp, camLookAhead * (flipped and -1 or 1))
+
+        -- Flip camera direction while keeping view consistent
+        local camOffset = Vector3.new(0, skyCamHeight, skyCamDistance * (flipped and -1 or 1))
+
+        local desiredCFrame = CFrame.new(ballPos + camOffset, camTarget)
+        cam.CFrame = cam.CFrame:Lerp(desiredCFrame, smoothFactor)
+        cam.CameraType = Enum.CameraType.Scriptable
+    end
+end
+
+-- Input handler
+userInput.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+
+    -- Toggle SkyCam on "7"
+    if input.KeyCode == Enum.KeyCode.Seven then
+        skyCamEnabled = not skyCamEnabled
+
+        if skyCamEnabled then
+            toggleGUI(false) -- Hide UI
+        else
+            toggleGUI(true)  -- Show UI
+            cam.CameraType = Enum.CameraType.Custom
+        end
+    end
+
+    -- Flip SkyCam direction on "8"
+    if input.KeyCode == Enum.KeyCode.Eight and skyCamEnabled then
+        flipped = not flipped
+    end
+end)
+
+-- Continuously update SkyCam each frame
+runService.RenderStepped:Connect(updateSkyCam)
