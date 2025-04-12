@@ -1,0 +1,120 @@
+local renderstep = game:GetService("RunService").RenderStepped
+print("RunService acquired:", renderstep)
+
+local coreGuis = {
+    Backpack = true,
+    Chat = true,
+    Health = true,
+    PlayerList = true,
+}
+
+local screenGuis = {}
+
+local setCores = {
+    BadgesNotificationsActive = true,
+    PointsNotificationsActive = true,
+}
+
+local StarterGui = game:GetService("StarterGui")
+print("StarterGui acquired:", StarterGui)
+
+local cam = workspace.CurrentCamera
+print("CurrentCamera acquired:", cam)
+
+local player = game:GetService("Players").LocalPlayer
+print("LocalPlayer acquired:", player)
+
+-- Locate Ball inside Flags folder
+local ballObjectValue = game:GetService("ReplicatedStorage"):FindFirstChild("Flags") and 
+                        game:GetService("ReplicatedStorage").Flags:FindFirstChild("Ball")
+
+local FocusPart = ballObjectValue and ballObjectValue.Value or nil
+
+if FocusPart then
+    print("FocusPart acquired:", FocusPart)
+else
+    warn("FocusPart not found! Check Ball's location.")
+end
+
+local focusPartFar
+local focusPartFov
+local enabled = false
+
+local position = Vector3.new(0, 70, -320)
+
+renderstep:Connect(function()
+    if enabled then
+        FocusPart = ballObjectValue and ballObjectValue.Value or nil
+        
+        if FocusPart and FocusPart:IsA("BasePart") then
+            focusPartFar = (position - FocusPart.Position).Magnitude
+            focusPartFov = (50 - ((focusPartFar / 10) * 2)) + (FocusPart.Position.Y / 1.7)
+            focusPartFov = math.clamp(focusPartFov, 7, 35)
+
+            cam.CameraType = Enum.CameraType.Scriptable
+            if FocusPart.Position.Y >= 0 then
+                cam.CFrame = CFrame.new(position, FocusPart.Position)
+                cam.FieldOfView = focusPartFov
+            end
+        else
+            warn("FocusPart is missing or invalid!")
+        end
+    end
+end)
+
+player:GetMouse().KeyDown:Connect(function(key)
+    local positions = {
+        ["1"] = Vector3.new(0, 70, -320),
+        ["2"] = Vector3.new(0, 70, 320),
+        ["3"] = Vector3.new(80, 10, 200),
+        ["4"] = Vector3.new(-80, 10, -200),
+        ["5"] = Vector3.new(-120, 10, 75),
+        ["6"] = Vector3.new(120, 10, -75),
+        ["7"] = Vector3.new(0, 40, 75),
+        ["8"] = Vector3.new(0, 40, -75),
+    }
+
+    if positions[key] then
+        position = positions[key]
+    end
+end)
+
+player:GetMouse().KeyDown:Connect(function(key)
+    if key == "z" then
+        enabled = not enabled
+
+        local playergui = player:FindFirstChild("PlayerGui")
+        if playergui then
+            if enabled then
+                for _, gui in pairs(playergui:GetChildren()) do
+                    if gui:IsA("ScreenGui") and gui.Enabled then
+                        gui.Enabled = false
+                        table.insert(screenGuis, gui)
+                    end
+                end
+            else
+                for _, gui in pairs(screenGuis) do
+                    if gui:IsA("ScreenGui") then
+                        gui.Enabled = true
+                    end
+                end
+                screenGuis = {}
+            end
+        end
+
+        for name in pairs(setCores) do
+            StarterGui:SetCore(name, enabled and false or true)
+        end
+
+        for name in pairs(coreGuis) do
+            StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType[name], enabled and false or true)
+        end
+
+        if not enabled then
+            cam.CameraSubject = player.Character and player.Character:FindFirstChild("Humanoid")
+            cam.CameraType = Enum.CameraType.Custom
+            cam.CFrame = player.Character and player.Character:FindFirstChild("Head") and player.Character.Head.CFrame or cam.CFrame
+            cam.FieldOfView = 70
+        end
+    end
+end)
