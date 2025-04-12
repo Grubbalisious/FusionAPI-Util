@@ -1,0 +1,138 @@
+local runService = game:GetService("RunService")
+local userInput = game:GetService("UserInputService")
+local cam = workspace.CurrentCamera
+local player = game:GetService("Players").LocalPlayer
+
+local autoCamEnabled = true
+local currentCamMode = "SkyCam"
+local lastSwitchTime = tick()
+local switchInterval = math.random(7, 12)
+local lastDynamicAngle = nil
+local skyCamFlip = false
+local ballThrown = false
+local smoothFactor = 0.08  -- Increased smoothness for cinematic feel
+local dynamicAnglePicked = false
+local camFlip = false
+local sideCamFlip = false  -- Tracks side cam flip direction
+
+local skyCamHeight = 60
+local skyCamDistance = 85
+local sideCamHeight = 30
+local sideCamDistance = 50
+local ballCamDistance = 35  -- Adjusted for better visibility
+local ballCamHeight = 35    -- Raised camera height for better angle
+local ballCamAngleDown = -3 -- Lowered downward angle for better tracking
+local ballFollowSmoothFactor = 0.03  -- Slower cinematic movement when following ball
+
+local dynamicAngles = {
+    Vector3.new(0, 70, -320),
+    Vector3.new(0, 70, 320),
+    Vector3.new(80, 10, 200),
+    Vector3.new(-80, 10, -200),
+    Vector3.new(-120, 10, 75),
+    Vector3.new(120, 10, -75),
+    Vector3.new(0, 40, 75),
+    Vector3.new(0, 40, -75),
+    Vector3.new(50, 60, -150),
+    Vector3.new(-50, 60, 150),
+    Vector3.new(100, 20, -250),
+    Vector3.new(-100, 20, 250),
+}
+
+local function getBall()
+    local ballObjectValue = game:GetService("ReplicatedStorage"):FindFirstChild("Flags") and 
+                            game:GetService("ReplicatedStorage").Flags:FindFirstChild("Ball")
+    return ballObjectValue and ballObjectValue.Value or nil
+end
+
+local function getNewDynamicAngle(ballPos)
+    local closestAngle = dynamicAngles[1]
+    local closestDist = math.huge
+    for _, angle in pairs(dynamicAngles) do
+        local dist = (angle - ballPos).Magnitude
+        if dist < closestDist then
+            closestDist = dist
+            closestAngle = angle
+        end
+    end
+    return closestAngle
+end
+
+local function switchCameraMode()
+    if ballThrown or tick() - lastSwitchTime < 3 then return end -- Ensures camera stays for at least 3 seconds
+    local modes = {"SideCam", "Dynamic"} -- Removed SkyCam from post-catch cycle
+    local newMode = modes[math.random(1, #modes)]
+    while newMode == currentCamMode do
+        newMode = modes[math.random(1, #modes)]
+    end
+    currentCamMode = newMode
+    dynamicAnglePicked = false
+    switchInterval = math.random(7, 12)
+    lastSwitchTime = tick()
+    print("Switched to:", currentCamMode)
+end
+
+local function updateCamera()
+    local ball = getBall()
+    if not ball or not ball:IsA("BasePart") then return end
+
+    local ballVelocity = ball.AssemblyLinearVelocity.Magnitude
+    local ballPos = ball.Position
+
+    if ballVelocity > 30 and not ballThrown then
+        ballThrown = true
+        currentCamMode = "BallCam"
+        print("Ball Thrown! Switching to BallCam.")
+    elseif ballVelocity < 5 and ballThrown then
+        ballThrown = false
+        currentCamMode = "Dynamic"
+        print("Ball Caught! Switching to Dynamic.")
+    end
+
+    if ballVelocity < 1 then
+        ballThrown = false
+        print("Ball Stopped! Keeping current camera mode.")
+    end
+
+    local flipMultiplier = camFlip and -1 or 1
+    local sideFlipMultiplier = sideCamFlip and -1 or 1
+
+    if currentCamMode == "SkyCam" then
+        local camOffset = Vector3.new(0, skyCamHeight, skyCamDistance * flipMultiplier)
+        local targetPos = ballPos + camOffset
+        cam.CameraType = Enum.CameraType.Scriptable
+        cam.CFrame = cam.CFrame:Lerp(CFrame.new(targetPos, ballPos), smoothFactor)
+    elseif currentCamMode == "SideCam" then
+        local camOffset = Vector3.new(50 * sideFlipMultiplier, sideCamHeight, sideCamDistance * flipMultiplier)
+        local targetPos = ballPos + camOffset
+        cam.CameraType = Enum.CameraType.Scriptable
+        cam.CFrame = cam.CFrame:Lerp(CFrame.new(targetPos, ballPos), smoothFactor)
+    elseif currentCamMode == "BallCam" then
+        local camOffset = Vector3.new(0, ballCamHeight, ballCamDistance * flipMultiplier)
+        local lookAtPos = ballPos - Vector3.new(0, ballCamAngleDown, 0)
+        cam.CameraType = Enum.CameraType.Scriptable
+        cam.CFrame = cam.CFrame:Lerp(CFrame.new(ballPos + camOffset, lookAtPos), ballFollowSmoothFactor)  -- Cinematic smooth movement
+    elseif currentCamMode == "Dynamic" then
+        local targetPos = getNewDynamicAngle(ballPos)
+        cam.CameraType = Enum.CameraType.Scriptable
+        cam.CFrame = CFrame.new(targetPos, ballPos)  -- Instant switch for Dynamic mode
+    end
+end
+
+userInput.InputBegan:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode.F then
+        camFlip = not camFlip
+        sideCamFlip = not sideCamFlip  -- Flips side cam both front/back and left/right
+        print("Camera Flip:", camFlip and "ON" or "OFF")
+    elseif input.KeyCode == Enum.KeyCode.T then
+        autoCamEnabled = not autoCamEnabled
+        print("Auto Camera:", autoCamEnabled and "Enabled" or "Disabled")
+    end
+end)
+
+runService.RenderStepped:Connect(function()
+    if tick() - lastSwitchTime >= switchInterval and not ballThrown and autoCamEnabled then
+        switchCameraMode()
+    end
+    updateCamera()
+end)
