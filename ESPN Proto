@@ -1,0 +1,44 @@
+local runService = game:GetService("RunService")
+local cam = workspace.CurrentCamera
+local player = game:GetService("Players").LocalPlayer
+
+local baseHeight = 32
+local baseDistance = 50
+local lookAhead = 20
+local driftAmount = 5  -- How much the camera "floats" around
+local driftSpeed = 0.5  -- Speed of the floaty movement
+
+local closeSmooth = 0.12
+local farSmooth = 0.2
+local maxSmoothDist = 100
+
+local function getBall()
+	local flags = game:GetService("ReplicatedStorage"):FindFirstChild("Flags")
+	return flags and flags:FindFirstChild("Ball") and flags.Ball.Value or nil
+end
+
+runService.RenderStepped:Connect(function(time)
+	local ball = getBall()
+	if not ball or not ball:IsA("BasePart") then return end
+
+	local forward = ball.CFrame.LookVector
+	local right = ball.CFrame.RightVector
+	local up = ball.CFrame.UpVector
+
+	-- Floating "drift" effect
+	local driftX = math.sin(time * driftSpeed) * driftAmount
+	local driftY = math.cos(time * driftSpeed * 0.8) * (driftAmount / 2)
+
+	-- Desired camera position (behind and slightly above the ball)
+	local camOffset = (-forward * baseDistance) + (up * baseHeight) + (right * driftX) + (up * driftY)
+	local desiredPos = ball.Position + camOffset
+
+	-- Where the camera looks — slightly ahead of the ball
+	local lookAt = ball.Position + forward * lookAhead + Vector3.new(0, 3, 0)
+
+	local dist = (cam.CFrame.Position - desiredPos).Magnitude
+	local lerpFactor = dist > maxSmoothDist and farSmooth or closeSmooth
+
+	cam.CameraType = Enum.CameraType.Scriptable
+	cam.CFrame = cam.CFrame:Lerp(CFrame.new(desiredPos, lookAt), lerpFactor)
+end)
