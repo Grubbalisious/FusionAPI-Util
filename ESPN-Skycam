@@ -1,72 +1,126 @@
 local runService = game:GetService("RunService")
 local userInput = game:GetService("UserInputService")
-local starterGui = game:GetService("StarterGui")
+local players = game:GetService("Players")
+local replicatedStorage = game:GetService("ReplicatedStorage")
+
 local cam = workspace.CurrentCamera
-local player = game:GetService("Players").LocalPlayer
+local player = players.LocalPlayer
 
-local skyCamEnabled = false
-local smoothFactor = 0.1         -- Smooth movement
-local skyCamHeight = 35          -- Slightly higher for a better view
-local skyCamDistance = 70        -- Moves the camera further behind
-local camLookAhead = 30          -- Keeps it looking further downfield
-local flipped = false            -- Camera flip state
-local tiltUp = 10                -- Adjust tilt upwards
+-- === CONFIG ===
+local enabled = false
+local flipped = false
 
--- Function to locate the ball
+local cameraHeight = 35
+local cameraDistance = 75
+local lookAheadDistance = 30
+local sideOffsetAmount = 30 -- 90 degree side camera offset
+local normalLerpSpeed = 0.25
+local fastLerpSpeed = 0.5
+local distanceThreshold = 100
+local tiltUp = 8
+local minY = 10 -- don't go below this Y level
+
+local currentPosition = Vector3.new()
+local currentFocus = Vector3.new()
+local smoothDirection = Vector3.new(0, 0, 1)
+
+-- === BALL TRACKING ===
 local function getBall()
-    local ballObjectValue = game:GetService("ReplicatedStorage"):FindFirstChild("Flags") and 
-                            game:GetService("ReplicatedStorage").Flags:FindFirstChild("Ball")
-    return ballObjectValue and ballObjectValue.Value or nil
+	local flags = replicatedStorage:FindFirstChild("Flags")
+	local ballRef = flags and flags:FindFirstChild("Ball")
+	return ballRef and ballRef.Value or nil
 end
 
--- Function to toggle UI visibility
+-- === UI TOGGLE ===
 local function toggleGUI(state)
-    for _, gui in pairs(player.PlayerGui:GetChildren()) do
-        if gui:IsA("ScreenGui") then
-            gui.Enabled = state
-        end
-    end
+	for _, gui in pairs(player.PlayerGui:GetChildren()) do
+		if gui:IsA("ScreenGui") then
+			gui.Enabled = state
+		end
+	end
 end
 
--- Update the SkyCam position and view
-local function updateSkyCam()
-    if not skyCamEnabled then return end
+-- === INIT CAMERA ON SPAWN ===
+local function snapCameraToBall()
+	local ball = getBall()
+	if not (ball and ball:IsA("BasePart")) then return end
 
-    local ball = getBall()
-    if ball and ball:IsA("BasePart") then
-        local ballPos = ball.Position
-        local camTarget = ballPos + Vector3.new(0, tiltUp, camLookAhead * (flipped and -1 or 1))
+	local direction = Vector3.new(0, 0, 1)
+	smoothDirection = direction
 
-        -- Flip camera direction while keeping view consistent
-        local camOffset = Vector3.new(0, skyCamHeight, skyCamDistance * (flipped and -1 or 1))
+	local forwardDir = direction * (flipped and -1 or 1)
+	local rightDir = Vector3.new(-forwardDir.Z, 0, forwardDir.X) -- 90-degree rotation to the right
 
-        local desiredCFrame = CFrame.new(ballPos + camOffset, camTarget)
-        cam.CFrame = cam.CFrame:Lerp(desiredCFrame, smoothFactor)
-        cam.CameraType = Enum.CameraType.Scriptable
-    end
+	local ballPos = ball.Position
+	local heightAdjust = Vector3.new(0, cameraHeight, 0)
+	local sideOffset = rightDir * sideOffsetAmount
+
+	currentFocus = ballPos + forwardDir * lookAheadDistance + Vector3.new(0, tiltUp, 0)
+	currentPosition = ballPos - forwardDir * cameraDistance + sideOffset + heightAdjust
+
+	cam.CameraType = Enum.CameraType.Scriptable
+	cam.CFrame = CFrame.new(currentPosition, currentFocus)
 end
 
--- Input handler
+-- === CAMERA UPDATE ===
+local function updateCamera(dt)
+	if not enabled then return end
+
+	local ball = getBall()
+	if not (ball and ball:IsA("BasePart")) then return end
+
+	local ballPos = ball.Position
+	local velocity = ball.Velocity
+	local moving = velocity.Magnitude > 2
+
+	if moving then
+		local rawDirection = velocity.Unit
+		smoothDirection = smoothDirection:Lerp(rawDirection, 0.1)
+	end
+
+	local forwardDir = smoothDirection * (flipped and -1 or 1)
+	local rightDir = Vector3.new(-forwardDir.Z, 0, forwardDir.X) -- rotate 90 degrees
+	local heightAdjust = Vector3.new(0, cameraHeight, 0)
+	local sideOffset = rightDir * sideOffsetAmount
+
+	local targetFocus = ballPos + forwardDir * lookAheadDistance + Vector3.new(0, tiltUp, 0)
+	local targetPosition = ballPos - forwardDir * cameraDistance + sideOffset + heightAdjust
+
+	-- Ground check
+	if targetPosition.Y < minY then
+		targetPosition = Vector3.new(targetPosition.X, minY, targetPosition.Z)
+	end
+
+	local distance = (currentPosition - targetPosition).Magnitude
+	local lerpSpeed = distance > distanceThreshold and fastLerpSpeed or normalLerpSpeed
+
+	currentPosition = currentPosition:Lerp(targetPosition, 1 - math.exp(-lerpSpeed * dt))
+	currentFocus = currentFocus:Lerp(targetFocus, 1 - math.exp(-lerpSpeed * dt))
+
+	cam.CameraType = Enum.CameraType.Scriptable
+	cam.CFrame = CFrame.new(currentPosition, currentFocus)
+end
+
+-- === INPUT HANDLING ===
 userInput.InputBegan:Connect(function(input, gameProcessed)
-    if gameProcessed then return end
+	if gameProcessed then return end
 
-    -- Toggle SkyCam on "7"
-    if input.KeyCode == Enum.KeyCode.Seven then
-        skyCamEnabled = not skyCamEnabled
+	if input.KeyCode == Enum.KeyCode.Seven then
+		enabled = not enabled
 
-        if skyCamEnabled then
-            toggleGUI(false) -- Hide UI
-        else
-            toggleGUI(true)  -- Show UI
-            cam.CameraType = Enum.CameraType.Custom
-        end
-    end
+		if enabled then
+			toggleGUI(false)
+			snapCameraToBall()
+		else
+			toggleGUI(true)
+			cam.CameraType = Enum.CameraType.Custom
+		end
+	end
 
-    -- Flip SkyCam direction on "8"
-    if input.KeyCode == Enum.KeyCode.Eight and skyCamEnabled then
-        flipped = not flipped
-    end
+	if input.KeyCode == Enum.KeyCode.Eight and enabled then
+		flipped = not flipped
+	end
 end)
 
--- Continuously update SkyCam each frame
-runService.RenderStepped:Connect(updateSkyCam)
+-- === RENDER LOOP ===
+runService.RenderStepped:Connect(updateCamera)
